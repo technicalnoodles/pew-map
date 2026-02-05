@@ -1,0 +1,16 @@
+---
+trigger: always_on
+---
+## BACKEND
+
+### Guidelines for NODE
+
+#### EXPRESS
+
+- Use express-async-errors or wrap async route handlers in try/catch blocks to properly handle promise rejections and prevent server crashes
+- Implement middleware for cross-cutting concerns like logging, error handling, and authentication following the chain-of-responsibility pattern
+- Use helmet middleware to enhance API security with appropriate HTTP headers for {{security_requirements}}
+- Structure routes using the Router class and organize by resource or feature to maintain a clean separation of concerns
+- Implement rate limiting for public endpoints to prevent abuse and DoS attacks on {{critical_endpoints}}
+- Use environment-specific configuration with dotenv and never hardcode sensitive values like {{database_credentials}} or API keys
+

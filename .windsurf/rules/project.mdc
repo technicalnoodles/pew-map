@@ -1,0 +1,7 @@
+---
+trigger: always_on
+---
+# AI Rules for {{project-name}}
+
+{{project-description}}
+
