@@ -17,9 +17,8 @@ function App() {
   const [interfaces, setInterfaces] = useState([]);
   const [connectionBatch, setConnectionBatch] = useState([]);
 
-  const { sendMessage, lastMessage, connectionStatus } = useWebSocket(
-    'ws://localhost:3000'
-  );
+  const wsUrl = `ws://${window.location.hostname}:${window.location.port || 3000}`;
+  const { sendMessage, lastMessage, connectionStatus } = useWebSocket(wsUrl);
 
   useEffect(() => {
     if (connectionStatus === 'connected') {
