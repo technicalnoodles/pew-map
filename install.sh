@@ -2,6 +2,7 @@
 set -euo pipefail
 
 echo "=== pew-map installer for Ubuntu Server 24.04 ==="
+echo "    Supports: Live packet capture, PCAP files, and syslog (IPS/SI) events"
 echo ""
 
 if [ ! -f "package.json" ]; then
@@ -45,8 +46,19 @@ else
 fi
 
 # 7. Allow packet capture without root
-echo "[7/7] Granting cap_net_raw to Node.js..."
+echo "[7/8] Granting cap_net_raw to Node.js..."
 sudo setcap cap_net_raw+ep "$(which node)"
+
+# 8. Open firewall for syslog (optional)
+echo "[8/8] Configuring firewall for syslog reception (UDP+TCP 514)..."
+if command -v ufw &>/dev/null; then
+  sudo ufw allow 514/udp comment 'pew-map syslog UDP'
+  sudo ufw allow 514/tcp comment 'pew-map syslog TCP'
+  sudo ufw allow 3000/tcp comment 'pew-map web UI'
+  echo "       UFW rules added for ports 514 (syslog) and 3000 (web UI)."
+else
+  echo "       UFW not found — manually open ports 514 (syslog) and 3000 (web) if needed."
+fi
 
 echo ""
 echo "=== Installation complete ==="
@@ -55,3 +67,8 @@ echo "Next steps:"
 echo "  1. Edit .env with your location coordinates"
 echo "  2. Run: sudo npm start"
 echo "  3. Open http://<your-server-ip>:3000 in a browser"
+echo ""
+echo "Syslog mode:"
+echo "  - Select 'Live Syslog Receiver (IPS/SI)' or 'Syslog File (IPS/SI)' in the UI"
+echo "  - For live mode, configure your FTD to send syslogs to <this-server-ip>:514"
+echo "  - Only IPS (430001) and Security Intelligence (430002) events are processed"

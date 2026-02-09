@@ -287,7 +287,7 @@ export default function PixiMapContainer({
   const spawnProjectile = (routeData, connection) => {
     if (!appRef.current || !routeData.container || !routeData.container.parent) return;
 
-    const color = getConnectionColor(connection.protocol);
+    const color = getConnectionColor(connection);
     const colorHex = parseInt(color.replace('#', ''), 16);
     const { src, dst, midX, controlY, container, dstMarker } = routeData;
 
@@ -352,7 +352,7 @@ export default function PixiMapContainer({
     const src = projectCoordinates(srcCoords[0], srcCoords[1], width, height);
     const dst = projectCoordinates(dstCoords[0], dstCoords[1], width, height);
 
-    const color = getConnectionColor(connection.protocol);
+    const color = getConnectionColor(connection);
     const colorHex = parseInt(color.replace('#', ''), 16);
 
     // Create container for this connection
@@ -453,8 +453,13 @@ export default function PixiMapContainer({
     animate();
   };
 
-  const getConnectionColor = (protocol) => {
-    // Splunk cyberpunk color palette
+  const getConnectionColor = (connection) => {
+    // If syslog mode with threat color, use that
+    if (connection.threatColor) {
+      return connection.threatColor;
+    }
+
+    // Splunk cyberpunk color palette for packet capture
     const colors = {
       6: '#00C48C',      // TCP - Splunk Green
       17: '#FF006E',     // UDP - Neon Magenta/Pink
@@ -462,7 +467,7 @@ export default function PixiMapContainer({
       default: '#00F0FF' // Other - Neon Cyan
     };
     
-    return colors[protocol] || colors.default;
+    return colors[connection.protocol] || colors.default;
   };
 
   return (

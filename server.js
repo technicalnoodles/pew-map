@@ -4,6 +4,7 @@ const WebSocket = require('ws');
 const path = require('path');
 const fs = require('fs');
 const PacketProcessor = require('./lib/packet-processor');
+const SyslogProcessor = require('./lib/syslog-processor');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -26,6 +27,7 @@ server.setMaxListeners(0);
 const wss = new WebSocket.Server({ server });
 
 const packetProcessor = new PacketProcessor();
+const syslogProcessor = new SyslogProcessor();
 
 wss.on('connection', (ws) => {
   // Batch buffer: collect connections and flush every 100ms
@@ -81,16 +83,21 @@ wss.on('connection', (ws) => {
       const data = JSON.parse(message);
       
       if (data.action === 'start') {
-        const { interface: iface, pcapFile } = data;
+        const { interface: iface, pcapFile, syslogFile, syslogLive, syslogPort } = data;
         startBatching();
         
-        if (pcapFile) {
+        if (syslogLive) {
+          syslogProcessor.startLive(syslogPort, onConnection);
+        } else if (syslogFile) {
+          syslogProcessor.startFromFile(syslogFile, onConnection);
+        } else if (pcapFile) {
           packetProcessor.startFromFile(pcapFile, onConnection);
         } else {
           packetProcessor.startLiveCapture(iface, onConnection);
         }
       } else if (data.action === 'stop') {
         packetProcessor.stop();
+        syslogProcessor.stop();
         stopBatching();
       } else if (data.action === 'list-interfaces') {
         const interfaces = packetProcessor.listInterfaces();
@@ -103,12 +110,14 @@ wss.on('connection', (ws) => {
 
   ws.on('close', () => {
     packetProcessor.stop();
+    syslogProcessor.stop();
     stopBatching();
   });
 });
 
 process.once('SIGINT', () => {
   packetProcessor.stop();
+  syslogProcessor.stop();
   wss.close(() => {
     server.close(() => {
       process.exit(0);

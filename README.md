@@ -1,6 +1,6 @@
 # pew-map
 
-Live network packet capture visualization with animated geographic connections.
+Live network packet capture and firewall syslog visualization with animated geographic connections. Supports live packet capture, PCAP file replay, and real-time Cisco FTD syslog ingestion for IPS and Security Intelligence events.
 
 ## Installation Guide — Ubuntu Server 24.04
 
@@ -106,10 +106,12 @@ Press `Ctrl+C` to stop.
 
 ### 10. Firewall Configuration
 
-If UFW is enabled, allow the application port:
+If UFW is enabled, allow the application port and syslog reception:
 
 ```bash
-sudo ufw allow 3000/tcp
+sudo ufw allow 3000/tcp    # Web UI
+sudo ufw allow 514/udp     # Syslog UDP
+sudo ufw allow 514/tcp     # Syslog TCP
 ```
 
 Or, if you plan to reverse-proxy behind Nginx on port 80/443, allow HTTP/HTTPS instead:
@@ -117,6 +119,8 @@ Or, if you plan to reverse-proxy behind Nginx on port 80/443, allow HTTP/HTTPS i
 ```bash
 sudo ufw allow 'Nginx Full'
 ```
+
+> **Note:** If you use a custom syslog port (e.g. 5514), open that port instead of 514.
 
 ### 11. (Optional) Reverse Proxy with Nginx
 
@@ -162,9 +166,66 @@ sudo systemctl restart nginx
 
 ---
 
+## Syslog Mode — Cisco FTD IPS & Security Intelligence
+
+pew-map can ingest syslog events from Cisco Firepower Threat Defense (FTD) devices and visualize malicious connections on the map in real time.
+
+### Supported Event Types
+
+- **430001** — Intrusion (IPS) events
+- **430002** — Security Intelligence (SI) events
+
+All other syslog message types (e.g. 430003 connection events) are ignored.
+
+### Data Source Options
+
+| Mode | Description |
+|------|-------------|
+| **Syslog File (IPS/SI)** | Load a JSON file containing an array of syslog strings for replay |
+| **Live Syslog Receiver (IPS/SI)** | Start a UDP+TCP syslog server to receive events in real time |
+
+### Configuring Your FTD
+
+1. In FMC, navigate to **Devices > Platform Settings > Syslog**
+2. Add a syslog server pointing to `<pew-map-server-ip>` on port `514` (or your custom port)
+3. Ensure IPS and SI event logging is enabled under **Policies > Intrusion / Access Control**
+4. Deploy changes to the FTD
+
+### Threat Coloring
+
+Connections are colored based on threat severity:
+
+- **Security Intelligence events** — colored by `IP_ReputationSI_Category` (Malicious = red, Botnet/CnC = orange-red, Phishing = orange, Tor/Proxy = yellow-orange)
+- **Intrusion events** — colored by `PriorityID` (1 = critical/red, 2 = high/orange, 3 = medium/yellow, 4 = low, 5 = info)
+
+### Local Network Detection
+
+If the ResponderIP is one of the following Cisco Umbrella/OpenDNS addresses, the connection is treated as originating from the local network:
+
+- `208.67.222.222`, `208.67.220.220`
+- `2620:119:35::35`, `2620:119:53::53`
+
+Private (RFC 1918) IPs are mapped to your configured home location. Internal-to-internal connections are ignored.
+
+### Example Syslog File
+
+An example file is included at `examples/ftd-syslog-ips.json`. It contains a JSON array of raw syslog strings:
+
+```json
+[
+  "2026-02-09T18:11:48Z FTD1  %FTD-1-430002: {\"EventPriority\":\"High\", ...}",
+  "2026-02-09T17:35:19Z FTD1  %FTD-1-430001: {\"PriorityID\":3, ...}"
+]
+```
+
+---
+
 ## Troubleshooting
 
 - **`Error: No network interface available`** — Ensure libpcap is installed and the user has permission to capture packets (see Step 8).
 - **`Cannot find module 'pcap'`** — The native addon failed to build. Verify `build-essential` and `libpcap-dev` are installed, then re-run `npm install`.
 - **Frontend shows a blank page** — Make sure you ran `npm run build` so the `dist/` directory exists.
 - **WebSocket connection fails behind Nginx** — Confirm the `Upgrade` and `Connection` proxy headers are set in the Nginx config.
+- **Syslog events not appearing** — Verify the FTD is sending to the correct IP/port. Test with `sudo tcpdump -i any port 514 -A` to confirm traffic is arriving.
+- **`EACCES` error on port 514** — Ports below 1024 require root. Either run with `sudo npm start` or use a port above 1024 (e.g. 5514) and update the FTD config to match.
+- **Only seeing some syslog events** — pew-map only processes 430001 (IPS) and 430002 (SI) events. Connection events (430003) and other types are intentionally filtered out.
