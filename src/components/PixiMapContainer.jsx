@@ -1,8 +1,156 @@
 import React, { useEffect, useRef } from 'react';
 import * as PIXI from 'pixi.js';
 
+// --- Pure utility functions hoisted outside component to avoid re-creation per render ---
+
+const LAND_CACHE_KEY = 'pewmap_land_mask_v1';
+const MAX_PROJECTILES_PER_ROUTE = 5;
+
+// Splunk cyberpunk color palette for packet capture
+const PROTOCOL_COLORS = {
+  6: '#00C48C',      // TCP - Splunk Green
+  17: '#FF006E',     // UDP - Neon Magenta/Pink
+  1: '#FF5C00',      // ICMP - Neon Orange
+  default: '#00F0FF' // Other - Neon Cyan
+};
+
+// Mercator projection
+const projectCoordinates = (lon, lat, width, height) => {
+  const x = (lon + 180) * (width / 360);
+  const latRad = (lat * Math.PI) / 180;
+  const mercN = Math.log(Math.tan(Math.PI / 4 + latRad / 2));
+  const y = height / 2 - (width * mercN) / (2 * Math.PI);
+  return { x, y };
+};
+
+// Convert TopoJSON to flat array of polygon coordinate arrays
+const topojsonToPolygons = (topology) => {
+  const polygons = [];
+  const obj = topology.objects.countries;
+  const arcs = topology.arcs;
+  const transform = topology.transform;
+  
+  // Decode arc coordinates
+  const decodedArcs = arcs.map(arc => {
+    const coords = [];
+    let x = 0, y = 0;
+    arc.forEach(([dx, dy]) => {
+      x += dx;
+      y += dy;
+      coords.push([
+        x * transform.scale[0] + transform.translate[0],
+        y * transform.scale[1] + transform.translate[1]
+      ]);
+    });
+    return coords;
+  });
+  
+  // Extract polygons from each geometry
+  obj.geometries.forEach(geom => {
+    if (geom.type === 'Polygon') {
+      geom.arcs.forEach(ring => {
+        const coords = decodeRing(ring, decodedArcs);
+        if (coords.length > 3) polygons.push(coords);
+      });
+    } else if (geom.type === 'MultiPolygon') {
+      geom.arcs.forEach(polygon => {
+        polygon.forEach(ring => {
+          const coords = decodeRing(ring, decodedArcs);
+          if (coords.length > 3) polygons.push(coords);
+        });
+      });
+    }
+  });
+  
+  return polygons;
+};
+
+// Decode a ring of arc indices into coordinates
+const decodeRing = (ring, decodedArcs) => {
+  const coords = [];
+  ring.forEach(arcIdx => {
+    let arc;
+    if (arcIdx >= 0) {
+      arc = decodedArcs[arcIdx];
+    } else {
+      arc = [...decodedArcs[~arcIdx]].reverse();
+    }
+    coords.push(...arc);
+  });
+  return coords;
+};
+
+// Point-in-polygon test using ray casting algorithm
+const pointInPolygon = (lon, lat, polygon) => {
+  let inside = false;
+  for (let i = 0, j = polygon.length - 1; i < polygon.length; j = i++) {
+    const xi = polygon[i][0], yi = polygon[i][1];
+    const xj = polygon[j][0], yj = polygon[j][1];
+    
+    const intersect = ((yi > lat) !== (yj > lat))
+      && (lon < (xj - xi) * (lat - yi) / (yj - yi) + xi);
+    if (intersect) inside = !inside;
+  }
+  return inside;
+};
+
+const getConnectionColor = (connection) => {
+  // If syslog mode with threat color, use that
+  if (connection.threatColor) {
+    return connection.threatColor;
+  }
+  return PROTOCOL_COLORS[connection.protocol] || PROTOCOL_COLORS.default;
+};
+
+const addScanlines = (app, container) => {
+  const scanlines = new PIXI.Graphics();
+  scanlines.lineStyle(1, 0x00C48C, 0.05);
+  
+  const height = app.screen.height;
+  const width = app.screen.width;
+  
+  for (let y = 0; y < height; y += 4) {
+    scanlines.moveTo(0, y);
+    scanlines.lineTo(width, y);
+  }
+  
+  container.addChild(scanlines);
+};
+
+// Compute land mask as a flat boolean array; cache in localStorage
+const computeLandMask = (countries) => {
+  // Check localStorage cache
+  try {
+    const cached = localStorage.getItem(LAND_CACHE_KEY);
+    if (cached) return JSON.parse(cached);
+  } catch (e) { /* ignore */ }
+
+  const mask = [];
+  for (let lon = -180; lon <= 180; lon += 3) {
+    for (let lat = -80; lat <= 80; lat += 3) {
+      let inside = false;
+      for (const poly of countries) {
+        if (pointInPolygon(lon, lat, poly)) {
+          inside = true;
+          break;
+        }
+      }
+      mask.push(inside ? 1 : 0);
+    }
+  }
+
+  try {
+    localStorage.setItem(LAND_CACHE_KEY, JSON.stringify(mask));
+  } catch (e) { /* storage full, ignore */ }
+
+  return mask;
+};
+
+// --- Component ---
+
 export default function PixiMapContainer({ 
   connectionBatch, 
+  isRunning,
   onActiveConnectionsChange,
   onCountriesCountChange,
   onConnectionRateChange 
@@ -17,16 +165,14 @@ export default function PixiMapContainer({
   const connectionsLayer = useRef(null);
   const activeRoutes = useRef(new Map());
   const projectileTextureRef = useRef(null);
-  const MAX_PROJECTILES_PER_ROUTE = 5;
+  const activeProjectiles = useRef([]);
 
-  // Mercator projection
-  const projectCoordinates = (lon, lat, width, height) => {
-    const x = (lon + 180) * (width / 360);
-    const latRad = (lat * Math.PI) / 180;
-    const mercN = Math.log(Math.tan(Math.PI / 4 + latRad / 2));
-    const y = height / 2 - (width * mercN) / (2 * Math.PI);
-    return { x, y };
-  };
+  // Clear countries set when capture stops to prevent unbounded growth
+  useEffect(() => {
+    if (!isRunning) {
+      countriesSet.current.clear();
+    }
+  }, [isRunning]);
 
   useEffect(() => {
     if (!containerRef.current || appRef.current) return;
@@ -63,6 +209,9 @@ export default function PixiMapContainer({
     connectionsLayer.current = new PIXI.Container();
     app.stage.addChild(connectionsLayer.current);
 
+    // Register single shared ticker for all projectile animations
+    app.ticker.add(tickerCallback);
+
     // Rate counter
     const rateInterval = setInterval(() => {
       onConnectionRateChange(lastSecondCount.current);
@@ -71,33 +220,20 @@ export default function PixiMapContainer({
 
     return () => {
       clearInterval(rateInterval);
+      activeProjectiles.current.length = 0;
       if (appRef.current) {
+        appRef.current.ticker.remove(tickerCallback);
         appRef.current.destroy(true, { children: true, texture: true });
         appRef.current = null;
       }
     };
   }, []);
 
-  const addScanlines = (app, container) => {
-    const scanlines = new PIXI.Graphics();
-    scanlines.lineStyle(1, 0x00C48C, 0.05);
-    
-    const height = app.screen.height;
-    const width = app.screen.width;
-    
-    for (let y = 0; y < height; y += 4) {
-      scanlines.moveTo(0, y);
-      scanlines.lineTo(width, y);
-    }
-    
-    container.addChild(scanlines);
-  };
-
   const loadWorldMap = async (app, container) => {
     const width = app.screen.width;
     const height = app.screen.height;
 
-    // Draw dotted continents
+    // Draw dotted continents (uses localStorage cache)
     drawDottedContinents(app, container);
     
     // Add subtle grid overlay
@@ -141,30 +277,26 @@ export default function PixiMapContainer({
       // Convert TopoJSON to polygons
       const countries = topojsonToPolygons(topology);
       
+      // Use cached land mask to avoid expensive point-in-polygon on every load
+      const mask = computeLandMask(countries);
+      
       const dotRadius = 1.5;
       const dotColor = 0x00C48C;
       const dotAlpha = 0.55;
       const graphics = new PIXI.Graphics();
       graphics.beginFill(dotColor, dotAlpha);
       
-      // Sample points globally, draw dot if inside any country
+      // Render dots from the pre-computed mask
+      let idx = 0;
       for (let lon = -180; lon <= 180; lon += 3) {
         for (let lat = -80; lat <= 80; lat += 3) {
-          let inside = false;
-          
-          for (const poly of countries) {
-            if (pointInPolygon(lon, lat, poly)) {
-              inside = true;
-              break;
-            }
-          }
-          
-          if (inside) {
+          if (mask[idx]) {
             const pos = projectCoordinates(lon, lat, width, height);
             if (pos.x >= 0 && pos.x <= width && pos.y >= 0 && pos.y <= height) {
               graphics.drawCircle(pos.x, pos.y, dotRadius);
             }
           }
+          idx++;
         }
       }
       
@@ -184,75 +316,39 @@ export default function PixiMapContainer({
     container.addChild(dotContainer);
   };
 
-  // Convert TopoJSON to flat array of polygon coordinate arrays
-  const topojsonToPolygons = (topology) => {
-    const polygons = [];
-    const obj = topology.objects.countries;
-    const arcs = topology.arcs;
-    const transform = topology.transform;
-    
-    // Decode arc coordinates
-    const decodedArcs = arcs.map(arc => {
-      const coords = [];
-      let x = 0, y = 0;
-      arc.forEach(([dx, dy]) => {
-        x += dx;
-        y += dy;
-        coords.push([
-          x * transform.scale[0] + transform.translate[0],
-          y * transform.scale[1] + transform.translate[1]
-        ]);
-      });
-      return coords;
-    });
-    
-    // Extract polygons from each geometry
-    obj.geometries.forEach(geom => {
-      if (geom.type === 'Polygon') {
-        geom.arcs.forEach(ring => {
-          const coords = decodeRing(ring, decodedArcs);
-          if (coords.length > 3) polygons.push(coords);
-        });
-      } else if (geom.type === 'MultiPolygon') {
-        geom.arcs.forEach(polygon => {
-          polygon.forEach(ring => {
-            const coords = decodeRing(ring, decodedArcs);
-            if (coords.length > 3) polygons.push(coords);
-          });
-        });
-      }
-    });
-    
-    return polygons;
-  };
-  
-  // Decode a ring of arc indices into coordinates
-  const decodeRing = (ring, decodedArcs) => {
-    const coords = [];
-    ring.forEach(arcIdx => {
-      let arc;
-      if (arcIdx >= 0) {
-        arc = decodedArcs[arcIdx];
-      } else {
-        arc = [...decodedArcs[~arcIdx]].reverse();
-      }
-      coords.push(...arc);
-    });
-    return coords;
-  };
+  // Single Pixi ticker callback that updates all active projectiles each frame
+  const tickerCallback = () => {
+    const now = Date.now();
+    const projs = activeProjectiles.current;
+    let writeIdx = 0;
 
-  // Point-in-polygon test using ray casting algorithm
-  const pointInPolygon = (lon, lat, polygon) => {
-    let inside = false;
-    for (let i = 0, j = polygon.length - 1; i < polygon.length; j = i++) {
-      const xi = polygon[i][0], yi = polygon[i][1];
-      const xj = polygon[j][0], yj = polygon[j][1];
-      
-      const intersect = ((yi > lat) !== (yj > lat))
-        && (lon < (xj - xi) * (lat - yi) / (yj - yi) + xi);
-      if (intersect) inside = !inside;
+    for (let i = 0; i < projs.length; i++) {
+      const p = projs[i];
+      if (!p.sprite.parent) continue;
+
+      const t = (now - p.startTime) / animationDuration;
+
+      if (t <= 1) {
+        const oneMinusT = 1 - t;
+        const x = oneMinusT * oneMinusT * p.src.x + 2 * oneMinusT * t * p.midX + t * t * p.dst.x;
+        const y = oneMinusT * oneMinusT * p.src.y + 2 * oneMinusT * t * p.controlY + t * t * p.dst.y;
+        p.sprite.position.set(x, y);
+
+        // Pulse destination marker
+        const scale = 1 + Math.sin(t * Math.PI * 4) * p.pulseAmount;
+        p.dstMarker.scale.set(scale);
+
+        projs[writeIdx++] = p;
+      } else {
+        // Remove finished projectile
+        if (p.sprite.parent) {
+          p.container.removeChild(p.sprite);
+          p.sprite.destroy();
+        }
+        if (p.routeData && p.routeData.projectileCount) p.routeData.projectileCount--;
+      }
     }
-    return inside;
+    projs.length = writeIdx;
   };
 
   useEffect(() => {
@@ -314,32 +410,15 @@ export default function PixiMapContainer({
       onActiveConnectionsChange(activeConnections.current);
     }, animationDuration);
 
-    // Animate the new projectile
-    const startTime = Date.now();
-    const animateProjectile = () => {
-      if (!appRef.current || !container.parent) return;
-      const t = (Date.now() - startTime) / animationDuration;
-
-      if (t <= 1) {
-        const x = Math.pow(1 - t, 2) * src.x + 2 * (1 - t) * t * midX + Math.pow(t, 2) * dst.x;
-        const y = Math.pow(1 - t, 2) * src.y + 2 * (1 - t) * t * controlY + Math.pow(t, 2) * dst.y;
-        projectile.position.set(x, y);
-
-        // Pulse destination marker on each new dot
-        const scale = 1 + Math.sin(t * Math.PI * 4) * 0.3;
-        dstMarker.scale.set(scale);
-
-        requestAnimationFrame(animateProjectile);
-      } else {
-        // Remove just this projectile when done
-        if (projectile.parent) {
-          container.removeChild(projectile);
-          projectile.destroy();
-        }
-        if (routeData.projectileCount) routeData.projectileCount--;
-      }
-    };
-    animateProjectile();
+    // Register projectile with the shared ticker loop
+    activeProjectiles.current.push({
+      sprite: projectile,
+      startTime: Date.now(),
+      src, dst, midX, controlY,
+      container, dstMarker,
+      pulseAmount: 0.3,
+      routeData
+    });
   };
 
   const drawAnimatedConnection = (connection, srcCoords, dstCoords, routeKey) => {
@@ -362,7 +441,9 @@ export default function PixiMapContainer({
     // Calculate arc control point (higher arc for longer distances)
     const midX = (src.x + dst.x) / 2;
     const midY = (src.y + dst.y) / 2;
-    const distance = Math.sqrt(Math.pow(dst.x - src.x, 2) + Math.pow(dst.y - src.y, 2));
+    const dx = dst.x - src.x;
+    const dy = dst.y - src.y;
+    const distance = Math.sqrt(dx * dx + dy * dy);
     const arcHeight = Math.min(distance * 0.3, 200);
     const controlY = midY - arcHeight;
 
@@ -411,33 +492,15 @@ export default function PixiMapContainer({
     projectile.tint = colorHex;
     connectionContainer.addChild(projectile);
 
-    // Animate projectile along the arc
-    const startTime = Date.now();
-
-    const animate = () => {
-      if (!appRef.current || !connectionContainer.parent) return;
-
-      const t = (Date.now() - startTime) / animationDuration;
-
-      if (t <= 1) {
-        const x = Math.pow(1 - t, 2) * src.x + 2 * (1 - t) * t * midX + Math.pow(t, 2) * dst.x;
-        const y = Math.pow(1 - t, 2) * src.y + 2 * (1 - t) * t * controlY + Math.pow(t, 2) * dst.y;
-        
-        projectile.position.set(x, y);
-        
-        // Pulse the destination marker
-        const scale = 1 + Math.sin(t * Math.PI * 4) * 0.2;
-        dstMarker.scale.set(scale);
-
-        requestAnimationFrame(animate);
-      } else {
-        // Remove just the first projectile
-        if (projectile.parent) {
-          connectionContainer.removeChild(projectile);
-          projectile.destroy();
-        }
-      }
-    };
+    // Register projectile with the shared ticker loop
+    activeProjectiles.current.push({
+      sprite: projectile,
+      startTime: Date.now(),
+      src, dst, midX, controlY,
+      container: connectionContainer, dstMarker,
+      pulseAmount: 0.2,
+      routeData: null
+    });
 
     // Set timeout to remove the whole line after animation
     routeData.timeout = setTimeout(() => {
@@ -449,25 +512,6 @@ export default function PixiMapContainer({
       activeConnections.current--;
       onActiveConnectionsChange(activeConnections.current);
     }, animationDuration);
-
-    animate();
-  };
-
-  const getConnectionColor = (connection) => {
-    // If syslog mode with threat color, use that
-    if (connection.threatColor) {
-      return connection.threatColor;
-    }
-
-    // Splunk cyberpunk color palette for packet capture
-    const colors = {
-      6: '#00C48C',      // TCP - Splunk Green
-      17: '#FF006E',     // UDP - Neon Magenta/Pink
-      1: '#FF5C00',      // ICMP - Neon Orange
-      default: '#00F0FF' // Other - Neon Cyan
-    };
-    
-    return colors[connection.protocol] || colors.default;
   };
 
   return (

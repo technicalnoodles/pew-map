@@ -1,6 +1,6 @@
 import React from 'react';
 
-export default function Stats({ totalConnections, activeConnections, countriesCount, connectionRate }) {
+export default React.memo(function Stats({ totalConnections, activeConnections, countriesCount, connectionRate }) {
   return (
     <div className="stats">
       <div className="stat-card">
@@ -21,4 +21,4 @@ export default function Stats({ totalConnections, activeConnections, countriesCo
       </div>
     </div>
   );
-}
+});

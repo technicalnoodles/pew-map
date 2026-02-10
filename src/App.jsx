@@ -46,8 +46,13 @@ function App() {
     setConnectionBatch(batch);
 
     setRecentConnections((prev) => {
-      const updated = [...batch.reverse(), ...prev];
-      return updated.slice(0, 100);
+      // Pre-format timestamps once so ConnectionFeed doesn't recreate Date objects per render
+      const withTime = batch.map(c => 
+        c._formattedTime ? c : { ...c, _formattedTime: new Date(c.timestamp).toLocaleTimeString() }
+      );
+      // Use spread to avoid mutating the original batch array
+      const updated = [...withTime].reverse().concat(prev);
+      return updated.length > 100 ? updated.slice(0, 100) : updated;
     });
   }, []);
 
@@ -90,6 +95,7 @@ function App() {
       <div className="map-and-feed">
         <PixiMapContainer
           connectionBatch={connectionBatch}
+          isRunning={isRunning}
           onActiveConnectionsChange={setActiveConnections}
           onCountriesCountChange={setCountriesCount}
           onConnectionRateChange={setConnectionRate}
