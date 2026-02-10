@@ -136,3 +136,6 @@ dist
 .pnp.*
 ftd-syslog-ips.json
 ftd-syslogs.json
+.vscode
+.windsurf
+
