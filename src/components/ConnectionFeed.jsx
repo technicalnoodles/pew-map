@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useRef, useEffect } from 'react';
 
 const THREAT_BADGE_MAP = {
   critical: 'threat-critical',
@@ -79,11 +79,30 @@ const FeedItem = React.memo(function FeedItem({ connection }) {
   );
 });
 
-export default React.memo(function ConnectionFeed({ connections }) {
+export default function ConnectionFeed({ connections }) {
+  const feedRef = useRef(null);
+  const prevCountRef = useRef(0);
+
+  useEffect(() => {
+    const el = feedRef.current;
+    if (!el) return;
+
+    const newItems = connections.length - prevCountRef.current;
+    prevCountRef.current = connections.length;
+
+    // If user has scrolled away from the top, preserve their position
+    if (newItems > 0 && el.scrollTop > 0) {
+      const prevScrollHeight = el.scrollHeight;
+      requestAnimationFrame(() => {
+        el.scrollTop += el.scrollHeight - prevScrollHeight;
+      });
+    }
+  }, [connections]);
+
   return (
     <div className="connection-feed">
       <h3>Recent Connections</h3>
-      <div id="feed-list">
+      <div id="feed-list" ref={feedRef}>
         {connections.map((connection, index) => (
           <FeedItem
             key={`${connection.timestamp}-${index}`}
@@ -93,4 +112,4 @@ export default React.memo(function ConnectionFeed({ connections }) {
       </div>
     </div>
   );
-});
+}
