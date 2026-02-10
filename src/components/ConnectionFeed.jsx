@@ -26,6 +26,19 @@ const formatLocation = (location) => {
   return parts.length > 0 ? parts.join(', ') : 'Unknown';
 };
 
+const obfuscateIP = (ip) => {
+  if (!ip) return 'Unknown';
+  if (ip.includes(':')) {
+    // IPv6: hide last 4 groups
+    const groups = ip.split(':');
+    const half = Math.ceil(groups.length / 2);
+    return groups.slice(0, half).join(':') + ':' + groups.slice(half).map(() => 'x').join(':');
+  }
+  // IPv4: hide last 2 octets
+  const octets = ip.split('.');
+  return octets[0] + '.' + octets[1] + '.x.x';
+};
+
 const getThreatBadgeClass = (connection) => {
   if (!connection.threatLevel) return '';
   return THREAT_BADGE_MAP[connection.threatLevel] || '';
@@ -47,7 +60,7 @@ const FeedItem = React.memo(function FeedItem({ connection }) {
         {formatLocation(connection.source)} → {formatLocation(connection.destination)}
       </div>
       <div className="feed-item-details">
-        {connection.source.ip} → {connection.destination.ip}
+        {obfuscateIP(connection.source.ip)} → {obfuscateIP(connection.destination.ip)}
       </div>
       {connection.mode === 'syslog' && (
         <>
