@@ -5,6 +5,7 @@ const path = require('path');
 const fs = require('fs');
 const PacketProcessor = require('./lib/packet-processor');
 const SyslogProcessor = require('./lib/syslog-processor');
+const logger = require('./lib/logger')('Server');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -20,7 +21,9 @@ if (fs.existsSync(distPath)) {
 
 app.use(express.json());
 
-const server = app.listen(PORT);
+const server = app.listen(PORT, () => {
+  logger.info(`Server started on port ${PORT}`);
+});
 
 server.setMaxListeners(0);
 
@@ -101,17 +104,22 @@ const startCapture = (config) => {
   }
 
   if (syslogLive) {
+    logger.info(`Starting live syslog capture on port ${syslogPort}`);
     syslogProcessor.startLive(syslogPort, broadcastConnection);
   } else if (syslogFile) {
+    logger.info(`Starting syslog file replay: ${syslogFile}`);
     syslogProcessor.startFromFile(syslogFile, broadcastConnection);
   } else if (pcapFile) {
+    logger.info(`Starting PCAP file replay: ${pcapFile}`);
     packetProcessor.startFromFile(pcapFile, broadcastConnection);
   } else {
+    logger.info(`Starting live packet capture on interface: ${iface || 'default'}`);
     packetProcessor.startLiveCapture(iface, broadcastConnection);
   }
 };
 
 const stopCapture = () => {
+  logger.info('Stopping capture');
   packetProcessor.stop();
   syslogProcessor.stop();
   for (const [clientWs] of clients) {
@@ -120,6 +128,7 @@ const stopCapture = () => {
 };
 
 wss.on('connection', (ws) => {
+  logger.info(`WebSocket client connected (total: ${clients.size + 1})`);
   clients.set(ws, { buffer: [], flushInterval: null });
 
   // If capture is already running, start batching for this new client immediately
@@ -140,16 +149,19 @@ wss.on('connection', (ws) => {
         ws.send(JSON.stringify({ type: 'interfaces', data: interfaces }));
       }
     } catch (err) {
+      logger.error('Error handling WebSocket message', err.message);
       ws.send(JSON.stringify({ type: 'error', message: err.message }));
     }
   });
 
   ws.on('close', () => {
+    logger.info(`WebSocket client disconnected (remaining: ${clients.size - 1})`);
     removeClient(ws);
   });
 });
 
 process.once('SIGINT', () => {
+  logger.info('SIGINT received, shutting down');
   packetProcessor.stop();
   syslogProcessor.stop();
   wss.close(() => {
