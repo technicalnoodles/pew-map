@@ -202,6 +202,12 @@ body {
   border-color: var(--status-active);
 }
 
+.control-group select:focus-visible,
+.control-group input:focus-visible {
+  outline: 2px solid var(--status-active);
+  outline-offset: 1px;
+}
+
 .hidden {
   display: none !important;
 }
@@ -240,6 +246,11 @@ body {
   background: oklch(63% 0.22 25);
 }
 
+.btn:focus-visible {
+  outline: 2px solid var(--status-active);
+  outline-offset: 2px;
+}
+
 .btn:disabled {
   opacity: 0.35;
   cursor: not-allowed;
@@ -258,7 +269,7 @@ body {
   background: var(--surface-0);
   border: 1px solid var(--border-subtle);
   border-radius: 4px;
-  min-height: 600px;
+  height: clamp(400px, 60vh, 800px);
   flex: 1;
   overflow: hidden;
 }
@@ -321,6 +332,12 @@ body {
   to {
     opacity: 1;
     transform: translateY(0);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .feed-item {
+    animation: none;
   }
 }
 

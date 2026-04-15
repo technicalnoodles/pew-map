@@ -16,27 +16,10 @@ function App() {
   const [recentConnections, setRecentConnections] = useState([]);
   const [interfaces, setInterfaces] = useState([]);
   const [connectionBatch, setConnectionBatch] = useState([]);
+  const [animationDuration, setAnimationDuration] = useState(2000);
 
   const wsUrl = `ws://${window.location.hostname}:${window.location.port || 3000}`;
   const { sendMessage, lastMessage, connectionStatus } = useWebSocket(wsUrl);
-
-  useEffect(() => {
-    if (connectionStatus === 'connected') {
-      sendMessage({ action: 'list-interfaces' });
-    }
-  }, [connectionStatus]);
-
-  useEffect(() => {
-    if (lastMessage) {
-      if (lastMessage.type === 'interfaces') {
-        setInterfaces(lastMessage.data);
-      } else if (lastMessage.type === 'batch') {
-        handleBatch(lastMessage);
-      } else if (lastMessage.type === 'connection') {
-        handleBatch({ data: [lastMessage], totalCount: 1 });
-      }
-    }
-  }, [lastMessage]);
 
   const handleBatch = useCallback((message) => {
     const batch = message.data || [];
@@ -55,6 +38,24 @@ function App() {
       return updated.length > 100 ? updated.slice(0, 100) : updated;
     });
   }, []);
+
+  useEffect(() => {
+    if (connectionStatus === 'connected') {
+      sendMessage({ action: 'list-interfaces' });
+    }
+  }, [connectionStatus, sendMessage]);
+
+  useEffect(() => {
+    if (lastMessage) {
+      if (lastMessage.type === 'interfaces') {
+        setInterfaces(lastMessage.data);
+      } else if (lastMessage.type === 'batch') {
+        handleBatch(lastMessage);
+      } else if (lastMessage.type === 'connection') {
+        handleBatch({ data: [lastMessage], totalCount: 1 });
+      }
+    }
+  }, [lastMessage, handleBatch]);
 
   const handleStart = (config) => {
     sendMessage({
@@ -91,12 +92,15 @@ function App() {
         isRunning={isRunning}
         onStart={handleStart}
         onStop={handleStop}
+        animationDuration={animationDuration}
+        onAnimationDurationChange={setAnimationDuration}
       />
       
       <div className="viewport">
         <PixiMapContainer
           connectionBatch={connectionBatch}
           isRunning={isRunning}
+          animationDuration={animationDuration}
           onActiveConnectionsChange={setActiveConnections}
           onCountriesCountChange={setCountriesCount}
           onConnectionRateChange={setConnectionRate}

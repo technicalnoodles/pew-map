@@ -2,7 +2,7 @@ import React from 'react';
 
 export default React.memo(function Stats({ totalConnections, activeConnections, countriesCount, connectionRate }) {
   return (
-    <div className="stats-inline">
+    <div className="stats-inline" role="status" aria-live="polite">
       <div className="stat-item">
         <span className="stat-value">{totalConnections}</span>
         <span className="stat-label">Connections</span>

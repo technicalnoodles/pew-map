@@ -96,17 +96,18 @@ const FeedItem = React.memo(function FeedItem({ connection }) {
 
 export default function ConnectionFeed({ connections }) {
   const feedRef = useRef(null);
-  const prevCountRef = useRef(0);
+  const prevFirstTimestamp = useRef(null);
 
   useEffect(() => {
     const el = feedRef.current;
-    if (!el) return;
+    if (!el || connections.length === 0) return;
 
-    const newItems = connections.length - prevCountRef.current;
-    prevCountRef.current = connections.length;
+    const currentFirst = connections[0]?.timestamp;
+    const hasNewData = currentFirst !== prevFirstTimestamp.current;
+    prevFirstTimestamp.current = currentFirst;
 
     // If user has scrolled away from the top, preserve their position
-    if (newItems > 0 && el.scrollTop > 0) {
+    if (hasNewData && el.scrollTop > 0) {
       const prevScrollHeight = el.scrollHeight;
       requestAnimationFrame(() => {
         el.scrollTop += el.scrollHeight - prevScrollHeight;
@@ -119,10 +120,10 @@ export default function ConnectionFeed({ connections }) {
       <div className="feed-header">
         <h3>Live Feed</h3>
       </div>
-      <div id="feed-list" ref={feedRef}>
+      <div id="feed-list" ref={feedRef} aria-live="polite" aria-relevant="additions">
         {connections.map((connection, index) => (
           <FeedItem
-            key={`${connection.timestamp}-${index}`}
+            key={connection.id || `${connection.timestamp}-${index}`}
             connection={connection}
           />
         ))}

@@ -1,12 +1,11 @@
 import React, { useState } from 'react';
 
-export default function Controls({ interfaces, isRunning, onStart, onStop }) {
+export default function Controls({ interfaces, isRunning, onStart, onStop, animationDuration, onAnimationDurationChange }) {
   const [sourceType, setSourceType] = useState('live');
   const [selectedInterface, setSelectedInterface] = useState('');
   const [pcapFile, setPcapFile] = useState('');
   const [syslogFile, setSyslogFile] = useState('');
   const [syslogPort, setSyslogPort] = useState(514);
-  const [animationDuration, setAnimationDuration] = useState(2000);
 
   const handleStart = () => {
     const config = {};
@@ -103,7 +102,7 @@ export default function Controls({ interfaces, isRunning, onStart, onStop }) {
             type="number"
             id="syslog-port"
             value={syslogPort}
-            onChange={(e) => setSyslogPort(parseInt(e.target.value))}
+            onChange={(e) => setSyslogPort(parseInt(e.target.value, 10))}
             min="1"
             max="65535"
           />
@@ -116,7 +115,7 @@ export default function Controls({ interfaces, isRunning, onStart, onStop }) {
           type="number"
           id="animation-duration"
           value={animationDuration}
-          onChange={(e) => setAnimationDuration(parseInt(e.target.value))}
+          onChange={(e) => onAnimationDurationChange(parseInt(e.target.value, 10))}
           min="500"
           max="10000"
           step="100"

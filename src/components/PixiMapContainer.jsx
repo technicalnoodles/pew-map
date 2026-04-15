@@ -6,12 +6,21 @@ import * as PIXI from 'pixi.js';
 const LAND_CACHE_KEY = 'pewmap_land_mask_v1';
 const MAX_PROJECTILES_PER_ROUTE = 5;
 
-// Splunk cyberpunk color palette for packet capture
+// Centralized PixiJS color palette — mirrors CSS design tokens
+// Update these when the CSS token system changes
+const PIXI_THEME = {
+  bg: 0x000000,
+  mapDot:   { hex: 0x00C48C, alpha: 0.55 },
+  grid:     { hex: 0x00C48C, alpha: 0.08 },
+  scanline: { hex: 0x00C48C, alpha: 0.05 },
+  marker:   { outline: 0xffffff },
+};
+
 const PROTOCOL_COLORS = {
-  6: '#00C48C',      // TCP - Splunk Green
-  17: '#FF006E',     // UDP - Neon Magenta/Pink
-  1: '#FF5C00',      // ICMP - Neon Orange
-  default: '#00F0FF' // Other - Neon Cyan
+  6: '#00C48C',      // TCP — status-active green
+  17: '#FF006E',     // UDP — magenta
+  1: '#FF5C00',      // ICMP — orange
+  default: '#00F0FF' // Other — cyan
 };
 
 // Mercator projection
@@ -104,7 +113,7 @@ const getConnectionColor = (connection) => {
 
 const addScanlines = (app, container) => {
   const scanlines = new PIXI.Graphics();
-  scanlines.lineStyle(1, 0x00C48C, 0.05);
+  scanlines.lineStyle(1, PIXI_THEME.scanline.hex, PIXI_THEME.scanline.alpha);
   
   const height = app.screen.height;
   const width = app.screen.width;
@@ -151,6 +160,7 @@ const computeLandMask = (countries) => {
 export default function PixiMapContainer({ 
   connectionBatch, 
   isRunning,
+  animationDuration: animationDurationProp,
   onActiveConnectionsChange,
   onCountriesCountChange,
   onConnectionRateChange 
@@ -160,12 +170,19 @@ export default function PixiMapContainer({
   const activeConnections = useRef(0);
   const countriesSet = useRef(new Set());
   const lastSecondCount = useRef(0);
-  const animationDuration = 2000;
+  const animationDurationRef = useRef(animationDurationProp || 2000);
   const maxConcurrentConnections = 100;
   const connectionsLayer = useRef(null);
   const activeRoutes = useRef(new Map());
   const projectileTextureRef = useRef(null);
   const activeProjectiles = useRef([]);
+  const mapLayerRef = useRef(null);
+  const initDims = useRef({ width: 0, height: 0 });
+
+  // Keep the ref in sync with the prop
+  useEffect(() => {
+    animationDurationRef.current = animationDurationProp || 2000;
+  }, [animationDurationProp]);
 
   // Clear countries set when capture stops to prevent unbounded growth
   useEffect(() => {
@@ -180,8 +197,8 @@ export default function PixiMapContainer({
     // Create PixiJS application with cyberpunk dark background
     const app = new PIXI.Application({
       width: containerRef.current.clientWidth,
-      height: 600,
-      backgroundColor: 0x000000,
+      height: containerRef.current.clientHeight || 600,
+      backgroundColor: PIXI_THEME.bg,
       antialias: false,
       resolution: 1,
       autoDensity: false
@@ -198,16 +215,24 @@ export default function PixiMapContainer({
     containerRef.current.appendChild(app.view);
     appRef.current = app;
 
+    // Store initial dimensions — all content is drawn at this size
+    initDims.current = { width: app.screen.width, height: app.screen.height };
+
+    // Root container that gets scaled on resize
+    const scaleRoot = new PIXI.Container();
+    app.stage.addChild(scaleRoot);
+
     // Create world map background
     const mapContainer = new PIXI.Container();
-    app.stage.addChild(mapContainer);
+    scaleRoot.addChild(mapContainer);
+    mapLayerRef.current = scaleRoot;
 
     // Load and display world map image
     loadWorldMap(app, mapContainer);
 
     // Create connections layer
     connectionsLayer.current = new PIXI.Container();
-    app.stage.addChild(connectionsLayer.current);
+    scaleRoot.addChild(connectionsLayer.current);
 
     // Register single shared ticker for all projectile animations
     app.ticker.add(tickerCallback);
@@ -218,7 +243,29 @@ export default function PixiMapContainer({
       lastSecondCount.current = 0;
     }, 1000);
 
+    // Resize PixiJS canvas and scale content when container size changes
+    const resizeObserver = new ResizeObserver((entries) => {
+      for (const entry of entries) {
+        const { width, height } = entry.contentRect;
+        if (width > 0 && height > 0 && appRef.current) {
+          appRef.current.renderer.resize(width, height);
+          // Scale all content (map + connections) uniformly to fit new size
+          if (mapLayerRef.current && initDims.current.width > 0) {
+            const scaleX = width / initDims.current.width;
+            const scaleY = height / initDims.current.height;
+            const scale = Math.min(scaleX, scaleY);
+            mapLayerRef.current.scale.set(scale);
+            // Center the content if aspect ratio differs
+            mapLayerRef.current.x = (width - initDims.current.width * scale) / 2;
+            mapLayerRef.current.y = (height - initDims.current.height * scale) / 2;
+          }
+        }
+      }
+    });
+    resizeObserver.observe(containerRef.current);
+
     return () => {
+      resizeObserver.disconnect();
       clearInterval(rateInterval);
       activeProjectiles.current.length = 0;
       if (appRef.current) {
@@ -238,7 +285,7 @@ export default function PixiMapContainer({
     
     // Add subtle grid overlay
     const grid = new PIXI.Graphics();
-    grid.lineStyle(1, 0x00C48C, 0.08);
+    grid.lineStyle(1, PIXI_THEME.grid.hex, PIXI_THEME.grid.alpha);
     
     // Longitude lines
     for (let lon = -180; lon <= 180; lon += 30) {
@@ -281,10 +328,8 @@ export default function PixiMapContainer({
       const mask = computeLandMask(countries);
       
       const dotRadius = 1.5;
-      const dotColor = 0x00C48C;
-      const dotAlpha = 0.55;
       const graphics = new PIXI.Graphics();
-      graphics.beginFill(dotColor, dotAlpha);
+      graphics.beginFill(PIXI_THEME.mapDot.hex, PIXI_THEME.mapDot.alpha);
       
       // Render dots from the pre-computed mask
       let idx = 0;
@@ -306,7 +351,7 @@ export default function PixiMapContainer({
       console.error('Failed to load GeoJSON, using fallback:', error);
       // Fallback: simple text indicator
       const text = new PIXI.Text('Map loading failed', {
-        fill: 0x00C48C,
+        fill: PIXI_THEME.mapDot.hex,
         fontSize: 14
       });
       text.position.set(width / 2 - 60, height / 2);
@@ -326,7 +371,7 @@ export default function PixiMapContainer({
       const p = projs[i];
       if (!p.sprite.parent) continue;
 
-      const t = (now - p.startTime) / animationDuration;
+      const t = (now - p.startTime) / animationDurationRef.current;
 
       if (t <= 1) {
         const oneMinusT = 1 - t;
@@ -408,7 +453,7 @@ export default function PixiMapContainer({
       activeRoutes.current.delete(routeData.routeKey);
       activeConnections.current--;
       onActiveConnectionsChange(activeConnections.current);
-    }, animationDuration);
+    }, animationDurationRef.current);
 
     // Register projectile with the shared ticker loop
     activeProjectiles.current.push({
@@ -425,8 +470,8 @@ export default function PixiMapContainer({
     if (!appRef.current || !connectionsLayer.current) return;
 
     const app = appRef.current;
-    const width = app.screen.width;
-    const height = app.screen.height;
+    const width = initDims.current.width;
+    const height = initDims.current.height;
 
     const src = projectCoordinates(srcCoords[0], srcCoords[1], width, height);
     const dst = projectCoordinates(dstCoords[0], dstCoords[1], width, height);
@@ -462,7 +507,7 @@ export default function PixiMapContainer({
     srcMarker.beginFill(colorHex, 1);
     srcMarker.drawCircle(0, 0, 6);
     srcMarker.endFill();
-    srcMarker.lineStyle(2, 0xffffff, 1);
+    srcMarker.lineStyle(2, PIXI_THEME.marker.outline, 1);
     srcMarker.drawCircle(0, 0, 6);
     srcMarker.position.set(src.x, src.y);
     connectionContainer.addChild(srcMarker);
@@ -472,7 +517,7 @@ export default function PixiMapContainer({
     dstMarker.beginFill(colorHex, 1);
     dstMarker.drawCircle(0, 0, 8);
     dstMarker.endFill();
-    dstMarker.lineStyle(2, 0xffffff, 1);
+    dstMarker.lineStyle(2, PIXI_THEME.marker.outline, 1);
     dstMarker.drawCircle(0, 0, 8);
     dstMarker.position.set(dst.x, dst.y);
     connectionContainer.addChild(dstMarker);
@@ -511,7 +556,7 @@ export default function PixiMapContainer({
       activeRoutes.current.delete(routeKey);
       activeConnections.current--;
       onActiveConnectionsChange(activeConnections.current);
-    }, animationDuration);
+    }, animationDurationRef.current);
   };
 
   return (
@@ -520,11 +565,7 @@ export default function PixiMapContainer({
       ref={containerRef}
       style={{ 
         width: '100%', 
-        height: '600px',
-        backgroundColor: '#000000',
-        borderRadius: '8px',
-        overflow: 'hidden',
-        boxShadow: '0 0 40px rgba(0, 196, 140, 0.3), inset 0 0 60px rgba(255, 0, 110, 0.1)'
+        overflow: 'hidden'
       }}
     />
   );

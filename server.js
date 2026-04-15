@@ -25,7 +25,7 @@ const server = app.listen(PORT, () => {
   logger.info(`Server started on port ${PORT}`);
 });
 
-server.setMaxListeners(0);
+server.setMaxListeners(20);
 
 const wss = new WebSocket.Server({ server });
 
@@ -35,8 +35,10 @@ const syslogProcessor = new SyslogProcessor();
 // --- Shared broadcast infrastructure for multi-client support ---
 const MAX_VISUAL_PER_BATCH = 200;
 const clients = new Map(); // ws -> { buffer, flushInterval }
+let connectionIdCounter = 0;
 
 const broadcastConnection = (connection) => {
+  connection.id = ++connectionIdCounter;
   for (const [, client] of clients) {
     client.buffer.push(connection);
   }

@@ -4,8 +4,12 @@ export default function useWebSocket(url) {
   const [lastMessage, setLastMessage] = useState(null);
   const [connectionStatus, setConnectionStatus] = useState('disconnected');
   const ws = useRef(null);
+  const reconnectTimer = useRef(null);
+  const mounted = useRef(true);
 
   useEffect(() => {
+    mounted.current = true;
+
     const connect = () => {
       ws.current = new WebSocket(url);
 
@@ -31,13 +35,20 @@ export default function useWebSocket(url) {
       ws.current.onclose = () => {
         console.log('WebSocket disconnected');
         setConnectionStatus('disconnected');
-        setTimeout(connect, 3000);
+        if (mounted.current) {
+          reconnectTimer.current = setTimeout(connect, 3000);
+        }
       };
     };
 
     connect();
 
     return () => {
+      mounted.current = false;
+      if (reconnectTimer.current) {
+        clearTimeout(reconnectTimer.current);
+        reconnectTimer.current = null;
+      }
       if (ws.current) {
         ws.current.close();
       }
