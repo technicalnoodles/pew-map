@@ -75,8 +75,16 @@ function App() {
   };
 
   return (
-    <div className="container">
-      <Header />
+    <div className="app">
+      <div className="top-bar">
+        <Header />
+        <Stats
+          totalConnections={totalConnections}
+          activeConnections={activeConnections}
+          countriesCount={countriesCount}
+          connectionRate={connectionRate}
+        />
+      </div>
       
       <Controls
         interfaces={interfaces}
@@ -85,14 +93,7 @@ function App() {
         onStop={handleStop}
       />
       
-      <Stats
-        totalConnections={totalConnections}
-        activeConnections={activeConnections}
-        countriesCount={countriesCount}
-        connectionRate={connectionRate}
-      />
-      
-      <div className="map-and-feed">
+      <div className="viewport">
         <PixiMapContainer
           connectionBatch={connectionBatch}
           isRunning={isRunning}

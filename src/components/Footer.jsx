@@ -3,8 +3,7 @@ import React from 'react';
 export default React.memo(function Footer() {
   return (
     <footer>
-      <p>⚠️ Requires root/admin privileges for live packet capture</p>
-      <p>Created By: Ryan MacLennan</p>
+      <p>Live packet capture requires root/admin privileges</p>
     </footer>
   );
 });

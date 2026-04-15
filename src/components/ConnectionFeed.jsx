@@ -45,13 +45,15 @@ const getThreatBadgeClass = (connection) => {
 };
 
 const FeedItem = React.memo(function FeedItem({ connection }) {
+  const isSyslog = connection.mode === 'syslog';
+  const threatStyle = connection.threatColor ? {
+    background: `color-mix(in oklch, ${connection.threatColor} 8%, transparent)`
+  } : undefined;
+
   return (
     <div
-      className={`feed-item ${connection.mode === 'syslog' ? 'feed-item-syslog' : ''}`}
-      style={connection.threatColor ? {
-        borderLeftColor: connection.threatColor,
-        background: `linear-gradient(90deg, ${connection.threatColor}15, rgba(0,0,0,0.3))`
-      } : undefined}
+      className={`feed-item ${isSyslog ? 'feed-item-syslog' : ''}`}
+      style={threatStyle}
     >
       <div className="feed-item-time">
         {connection._formattedTime}
@@ -62,10 +64,10 @@ const FeedItem = React.memo(function FeedItem({ connection }) {
       <div className="feed-item-details">
         {obfuscateIP(connection.source.ip)} → {obfuscateIP(connection.destination.ip)}
       </div>
-      {connection.mode === 'syslog' && (
+      {isSyslog && (
         <>
           {connection.threatInfo && (
-            <div className="feed-item-threat" style={{ color: connection.threatColor || '#FF006E' }}>
+            <div className="feed-item-threat" style={{ color: connection.threatColor }}>
               {connection.threatInfo}
             </div>
           )}
@@ -114,7 +116,9 @@ export default function ConnectionFeed({ connections }) {
 
   return (
     <div className="connection-feed">
-      <h3>Recent Connections</h3>
+      <div className="feed-header">
+        <h3>Live Feed</h3>
+      </div>
       <div id="feed-list" ref={feedRef}>
         {connections.map((connection, index) => (
           <FeedItem

@@ -2,22 +2,22 @@ import React from 'react';
 
 export default React.memo(function Stats({ totalConnections, activeConnections, countriesCount, connectionRate }) {
   return (
-    <div className="stats">
-      <div className="stat-card">
-        <div className="stat-value">{totalConnections}</div>
-        <div className="stat-label">Total Connections</div>
+    <div className="stats-inline">
+      <div className="stat-item">
+        <span className="stat-value">{totalConnections}</span>
+        <span className="stat-label">Connections</span>
       </div>
-      <div className="stat-card">
-        <div className="stat-value">{activeConnections}</div>
-        <div className="stat-label">Active Lines</div>
+      <div className="stat-item">
+        <span className="stat-value">{activeConnections}</span>
+        <span className="stat-label">Active</span>
       </div>
-      <div className="stat-card">
-        <div className="stat-value">{countriesCount}</div>
-        <div className="stat-label">Countries</div>
+      <div className="stat-item">
+        <span className="stat-value">{countriesCount}</span>
+        <span className="stat-label">Countries</span>
       </div>
-      <div className="stat-card">
-        <div className="stat-value">{connectionRate}/s</div>
-        <div className="stat-label">Rate</div>
+      <div className="stat-item">
+        <span className="stat-value">{connectionRate}/s</span>
+        <span className="stat-label">Rate</span>
       </div>
     </div>
   );

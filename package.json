@@ -1,6 +1,6 @@
 {
   "name": "pew-map",
-  "version": "1.0.0",
+  "version": "1.2.1",
   "description": "Live network packet capture visualization with animated geographic connections",
   "main": "server.js",
   "scripts": {
