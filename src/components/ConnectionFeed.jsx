@@ -45,14 +45,14 @@ const getThreatBadgeClass = (connection) => {
 };
 
 const FeedItem = React.memo(function FeedItem({ connection }) {
-  const isSyslog = connection.mode === 'syslog';
+  const isThreatLog = connection.mode === 'syslog' || connection.mode === 'palo-alto';
   const threatStyle = connection.threatColor ? {
     background: `color-mix(in oklch, ${connection.threatColor} 8%, transparent)`
   } : undefined;
 
   return (
     <div
-      className={`feed-item ${isSyslog ? 'feed-item-syslog' : ''}`}
+      className={`feed-item ${isThreatLog ? 'feed-item-syslog' : ''}`}
       style={threatStyle}
     >
       <div className="feed-item-time">
@@ -64,7 +64,7 @@ const FeedItem = React.memo(function FeedItem({ connection }) {
       <div className="feed-item-details">
         {obfuscateIP(connection.source.ip)} → {obfuscateIP(connection.destination.ip)}
       </div>
-      {isSyslog && (
+      {isThreatLog && (
         <>
           {connection.threatInfo && (
             <div className="feed-item-threat" style={{ color: connection.threatColor }}>

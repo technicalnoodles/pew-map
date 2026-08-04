@@ -5,6 +5,7 @@ export default function Controls({ interfaces, isRunning, onStart, onStop, anima
   const [selectedInterface, setSelectedInterface] = useState('');
   const [pcapFile, setPcapFile] = useState('');
   const [syslogFile, setSyslogFile] = useState('');
+  const [paloAltoFile, setPaloAltoFile] = useState('');
   const [syslogPort, setSyslogPort] = useState(514);
 
   const handleStart = () => {
@@ -24,6 +25,12 @@ export default function Controls({ interfaces, isRunning, onStart, onStop, anima
         return;
       }
       config.syslogFile = syslogFile;
+    } else if (sourceType === 'palo-alto') {
+      if (!paloAltoFile) {
+        alert('Please enter a Palo Alto NGFW Threat CSV file path');
+        return;
+      }
+      config.paloAltoFile = paloAltoFile;
     } else if (sourceType === 'syslog-live') {
       config.syslogLive = true;
       config.syslogPort = syslogPort;
@@ -44,6 +51,7 @@ export default function Controls({ interfaces, isRunning, onStart, onStop, anima
           <option value="live">Live Capture</option>
           <option value="file">PCAP File</option>
           <option value="syslog">Syslog File (IPS/SI)</option>
+          <option value="palo-alto">Palo Alto NGFW Threat CSV</option>
           <option value="syslog-live">Live Syslog Receiver (IPS/SI)</option>
         </select>
       </div>
@@ -91,6 +99,19 @@ export default function Controls({ interfaces, isRunning, onStart, onStop, anima
             value={syslogFile}
             onChange={(e) => setSyslogFile(e.target.value)}
             placeholder="/path/to/syslogs.json"
+          />
+        </div>
+      )}
+
+      {sourceType === 'palo-alto' && (
+        <div className="control-group" id="palo-alto-group">
+          <label htmlFor="palo-alto-file">Palo Alto NGFW Threat CSV Path:</label>
+          <input
+            type="text"
+            id="palo-alto-file"
+            value={paloAltoFile}
+            onChange={(e) => setPaloAltoFile(e.target.value)}
+            placeholder="/path/to/firewall_threat.csv"
           />
         </div>
       )}
