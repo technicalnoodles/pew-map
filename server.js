@@ -5,6 +5,9 @@ const path = require('path');
 const fs = require('fs');
 const PacketProcessor = require('./lib/packet-processor');
 const SyslogProcessor = require('./lib/syslog-processor');
+const { PaloAltoThreatProcessor } = require('./lib/palo-alto-processor');
+const { resolveCaptureSource, startCaptureSource } = require('./lib/capture-source');
+const { addConnectionToClientBatch, drainClientBatch } = require('./lib/client-batch');
 const logger = require('./lib/logger')('Server');
 
 const app = express();
@@ -31,16 +34,17 @@ const wss = new WebSocket.Server({ server });
 
 const packetProcessor = new PacketProcessor();
 const syslogProcessor = new SyslogProcessor();
+const paloAltoProcessor = new PaloAltoThreatProcessor();
 
 // --- Shared broadcast infrastructure for multi-client support ---
 const MAX_VISUAL_PER_BATCH = 200;
-const clients = new Map(); // ws -> { buffer, flushInterval }
+const clients = new Map(); // ws -> { buffer, totalCount, flushInterval }
 let connectionIdCounter = 0;
 
 const broadcastConnection = (connection) => {
   connection.id = ++connectionIdCounter;
   for (const [, client] of clients) {
-    client.buffer.push(connection);
+    addConnectionToClientBatch(client, connection, MAX_VISUAL_PER_BATCH);
   }
 };
 
@@ -49,29 +53,13 @@ const startClientBatching = (ws) => {
   if (!client || client.flushInterval) return;
 
   client.flushInterval = setInterval(() => {
-    if (client.buffer.length > 0 && ws.readyState === WebSocket.OPEN) {
-      const totalCount = client.buffer.length;
-      let visual;
-
-      if (totalCount <= MAX_VISUAL_PER_BATCH) {
-        visual = client.buffer;
-      } else {
-        // Reservoir sampling: pick MAX_VISUAL_PER_BATCH random connections
-        visual = client.buffer.slice(0, MAX_VISUAL_PER_BATCH);
-        for (let i = MAX_VISUAL_PER_BATCH; i < totalCount; i++) {
-          const j = Math.floor(Math.random() * (i + 1));
-          if (j < MAX_VISUAL_PER_BATCH) {
-            visual[j] = client.buffer[i];
-          }
-        }
-      }
-
+    if (client.totalCount > 0 && ws.readyState === WebSocket.OPEN) {
+      const { totalCount, visual } = drainClientBatch(client);
       ws.send(JSON.stringify({
         type: 'batch',
         data: visual,
         totalCount: totalCount
       }));
-      client.buffer = [];
     }
   }, 100);
 };
@@ -84,6 +72,7 @@ const stopClientBatching = (ws) => {
     client.flushInterval = null;
   }
   client.buffer = [];
+  client.totalCount = 0;
 };
 
 const removeClient = (ws) => {
@@ -94,36 +83,47 @@ const removeClient = (ws) => {
   if (clients.size === 0) {
     packetProcessor.stop();
     syslogProcessor.stop();
+    paloAltoProcessor.stop();
   }
 };
 
 const startCapture = (config) => {
-  const { interface: iface, pcapFile, syslogFile, syslogLive, syslogPort } = config;
+  const source = resolveCaptureSource(config);
 
   // Start batching for all connected clients
   for (const [clientWs] of clients) {
     startClientBatching(clientWs);
   }
 
-  if (syslogLive) {
-    logger.info(`Starting live syslog capture on port ${syslogPort}`);
-    syslogProcessor.startLive(syslogPort, broadcastConnection);
-  } else if (syslogFile) {
-    logger.info(`Starting syslog file replay: ${syslogFile}`);
-    syslogProcessor.startFromFile(syslogFile, broadcastConnection);
-  } else if (pcapFile) {
-    logger.info(`Starting PCAP file replay: ${pcapFile}`);
-    packetProcessor.startFromFile(pcapFile, broadcastConnection);
-  } else {
-    logger.info(`Starting live packet capture on interface: ${iface || 'default'}`);
-    packetProcessor.startLiveCapture(iface, broadcastConnection);
+  switch (source.type) {
+    case 'syslog-live':
+      logger.info(`Starting live FTD syslog capture on port ${source.port}`);
+      break;
+    case 'syslog-file':
+      logger.info(`Starting FTD syslog file replay: ${source.filePath}`);
+      break;
+    case 'palo-alto-file':
+      logger.info(`Starting Palo Alto Threat CSV replay: ${source.filePath}`);
+      break;
+    case 'pcap-file':
+      logger.info(`Starting PCAP file replay: ${source.filePath}`);
+      break;
+    default:
+      logger.info(`Starting live packet capture on interface: ${source.interface || 'default'}`);
   }
+
+  startCaptureSource(source, {
+    packetProcessor,
+    syslogProcessor,
+    paloAltoProcessor
+  }, broadcastConnection);
 };
 
 const stopCapture = () => {
   logger.info('Stopping capture');
   packetProcessor.stop();
   syslogProcessor.stop();
+  paloAltoProcessor.stop();
   for (const [clientWs] of clients) {
     stopClientBatching(clientWs);
   }
@@ -131,10 +131,10 @@ const stopCapture = () => {
 
 wss.on('connection', (ws) => {
   logger.info(`WebSocket client connected (total: ${clients.size + 1})`);
-  clients.set(ws, { buffer: [], flushInterval: null });
+  clients.set(ws, { buffer: [], totalCount: 0, flushInterval: null });
 
   // If capture is already running, start batching for this new client immediately
-  if (packetProcessor.isRunning || syslogProcessor.isRunning) {
+  if (packetProcessor.isRunning || syslogProcessor.isRunning || paloAltoProcessor.isRunning) {
     startClientBatching(ws);
   }
 
@@ -166,6 +166,7 @@ process.once('SIGINT', () => {
   logger.info('SIGINT received, shutting down');
   packetProcessor.stop();
   syslogProcessor.stop();
+  paloAltoProcessor.stop();
   wss.close(() => {
     server.close(() => {
       process.exit(0);

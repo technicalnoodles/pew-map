@@ -1,6 +1,6 @@
 # pew-map
 
-Live network packet capture and firewall syslog visualization with animated geographic connections. Supports live packet capture, PCAP file replay, and real-time Cisco FTD syslog ingestion for IPS and Security Intelligence events.
+Live network packet capture and firewall threat-log visualization with animated geographic connections. Supports live packet capture, PCAP file replay, Cisco FTD IPS/Security Intelligence syslog, and Palo Alto NGFW Threat CSV exports.
 
 ## Installation Guide — Ubuntu Server 24.04
 
@@ -183,6 +183,7 @@ All other syslog message types (e.g. 430003 connection events) are ignored.
 |------|-------------|
 | **Syslog File (IPS/SI)** | Load a JSON file containing an array of syslog strings for replay |
 | **Live Syslog Receiver (IPS/SI)** | Start a UDP+TCP syslog server to receive events in real time |
+| **Palo Alto NGFW Threat CSV** | Stream and replay a Palo Alto Threat log CSV export without loading the entire export into memory |
 
 ### Configuring Your FTD
 
@@ -220,6 +221,31 @@ An example file is included at `examples/ftd-syslog-ips.json`. It contains a JSO
 
 ---
 
+## Palo Alto NGFW Threat CSV Mode
+
+Select **Palo Alto NGFW Threat CSV** in the data-source menu, then enter the path to a Threat log export such as `firewall_threat_2026-08-02-23-09-07_502cac0393ff.csv`.
+
+The parser uses the standard export columns:
+
+- `Time Generated`, `Severity`, `Subtype`, and `Threat Name Firewall` for the displayed threat metadata
+- `Source Address` and `Destination Address` for map endpoints
+- `Application` to infer TCP/UDP when possible
+- `Threat Category`, `Action`, and `Rule` for feed badges and context
+
+CSV rows are streamed in accelerated batches, including quoted fields with commas. The parser yields every 250 rows to keep WebSocket delivery and the map responsive; it does not preserve the original event timing. `Critical`, `High`, `Medium`, `Low`, and `Informational` severities receive threat colors. A private endpoint is placed at the configured home location; a row with two private endpoints is skipped because it has no geographic route to draw.
+
+This mode reads exported CSV files only. It does not accept raw, live Palo Alto syslog messages.
+
+Palo Alto CSV and FTD syslog modes do not require the native `pcap` binding. If packet capture is unavailable, the server still starts and these log sources remain usable; only **Live Capture** and **PCAP File** sources report a packet-capture availability error.
+
+FTD and Palo Alto threat-log events whose destination is `172.16.16.16` or `172.16.16.17` are excluded before map processing.
+
+Informational Palo Alto Threat rows whose `Threat Category` is `info-leak` or `unknown` are also excluded before map processing. Severity and category matching are case-insensitive.
+
+See [the Palo Alto CSV field mapping](docs/palo-alto-ngfw.md) for the precise normalized fields.
+
+---
+
 ## Troubleshooting
 
 - **`Error: No network interface available`** — Ensure libpcap is installed and the user has permission to capture packets (see Step 8).
@@ -229,3 +255,4 @@ An example file is included at `examples/ftd-syslog-ips.json`. It contains a JSO
 - **Syslog events not appearing** — Verify the FTD is sending to the correct IP/port. Test with `sudo tcpdump -i any port 514 -A` to confirm traffic is arriving.
 - **`EACCES` error on port 514** — Ports below 1024 require root. Either run with `sudo npm start` or use a port above 1024 (e.g. 5514) and update the FTD config to match.
 - **Only seeing some syslog events** — pew-map only processes 430001 (IPS) and 430002 (SI) events. Connection events (430003) and other types are intentionally filtered out.
+- **Palo Alto rows are not appearing** — Select the Palo Alto CSV source, not an FTD syslog source, and confirm the export contains `Source Address`, `Destination Address`, and `Severity`. Rows with two private addresses are intentionally skipped.

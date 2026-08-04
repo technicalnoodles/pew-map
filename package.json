@@ -8,7 +8,8 @@
     "dev": "nodemon server.js",
     "dev:frontend": "vite",
     "build": "vite build",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "test": "node --test"
   },
   "keywords": [
     "network",
