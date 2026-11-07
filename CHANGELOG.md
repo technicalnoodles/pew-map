@@ -9,6 +9,8 @@
 
 ### Changed
 
+- Cisco FTD syslog parsing recognizes JSON `message_id` and `EventPriority` fields in current connection events, while preserving legacy syslog headers and private-to-OpenDNS direction.
+
 - Informational Palo Alto Threat rows in the `info-leak` and `unknown` categories are excluded before map processing.
 - The native `pcap` binding is loaded only for Live Capture and PCAP File sources, allowing FTD syslog and Palo Alto CSV modes to start when packet capture is unavailable.
 - Palo Alto Threat CSV replay now runs in accelerated, cooperative batches instead of waiting 80 ms after each row.

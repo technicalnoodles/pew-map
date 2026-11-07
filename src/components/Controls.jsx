@@ -50,9 +50,9 @@ export default function Controls({ interfaces, isRunning, onStart, onStop, anima
         >
           <option value="live">Live Capture</option>
           <option value="file">PCAP File</option>
-          <option value="syslog">Syslog File (IPS/SI)</option>
+          <option value="syslog">Syslog File (FTD)</option>
           <option value="palo-alto">Palo Alto NGFW Threat CSV</option>
-          <option value="syslog-live">Live Syslog Receiver (IPS/SI)</option>
+          <option value="syslog-live">Live Syslog Receiver (FTD)</option>
         </select>
       </div>
 

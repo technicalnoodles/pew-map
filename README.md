@@ -1,6 +1,6 @@
 # pew-map
 
-Live network packet capture and firewall threat-log visualization with animated geographic connections. Supports live packet capture, PCAP file replay, Cisco FTD IPS/Security Intelligence syslog, and Palo Alto NGFW Threat CSV exports.
+Live network packet capture and firewall threat-log visualization with animated geographic connections. Supports live packet capture, PCAP file replay, Cisco FTD intrusion and connection syslog, and Palo Alto NGFW Threat CSV exports.
 
 ## Installation Guide — Ubuntu Server 24.04
 
@@ -166,14 +166,14 @@ sudo systemctl restart nginx
 
 ---
 
-## Syslog Mode — Cisco FTD IPS & Security Intelligence
+## Syslog Mode — Cisco FTD
 
-pew-map can ingest syslog events from Cisco Firepower Threat Defense (FTD) devices and visualize malicious connections on the map in real time.
+pew-map can ingest syslog events from Cisco Firepower Threat Defense (FTD) devices and visualize intrusion and connection events on the map in real time.
 
 ### Supported Event Types
 
 - **430001** — Intrusion (IPS) events
-- **430002** — Security Intelligence (SI) events
+- **430002** — Connection events, including Security Intelligence details when present
 
 All other syslog message types (e.g. 430003 connection events) are ignored.
 
@@ -181,15 +181,15 @@ All other syslog message types (e.g. 430003 connection events) are ignored.
 
 | Mode | Description |
 |------|-------------|
-| **Syslog File (IPS/SI)** | Load a JSON file containing an array of syslog strings for replay |
-| **Live Syslog Receiver (IPS/SI)** | Start a UDP+TCP syslog server to receive events in real time |
+| **Syslog File (FTD)** | Replay newline-delimited JSON events, raw syslog lines, Splunk exports, or an array of syslog strings |
+| **Live Syslog Receiver (FTD)** | Start a UDP+TCP syslog server to receive events in real time |
 | **Palo Alto NGFW Threat CSV** | Stream and replay a Palo Alto Threat log CSV export without loading the entire export into memory |
 
 ### Configuring Your FTD
 
 1. In FMC, navigate to **Devices > Platform Settings > Syslog**
 2. Add a syslog server pointing to `<pew-map-server-ip>` on port `514` (or your custom port)
-3. Ensure IPS and SI event logging is enabled under **Policies > Intrusion / Access Control**
+3. Ensure the desired intrusion and connection event logging is enabled under **Policies > Intrusion / Access Control**
 4. Deploy changes to the FTD
 
 ### Threat Coloring
@@ -198,19 +198,20 @@ Connections are colored based on threat severity:
 
 - **Security Intelligence events** — colored by `IP_ReputationSI_Category` (Malicious = red, Botnet/CnC = orange-red, Phishing = orange, Tor/Proxy = yellow-orange)
 - **Intrusion events** — colored by `PriorityID` (1 = critical/red, 2 = high/orange, 3 = medium/yellow, 4 = low, 5 = info)
+- **Connection events** — when neither reputation nor `PriorityID` is present, colored by `EventPriority` (Critical, High, Medium, Low, or Informational). This priority is reported by FTD and does not itself mean a connection is malicious.
 
 ### Local Network Detection
 
-If the ResponderIP is one of the following Cisco Umbrella/OpenDNS addresses, the connection is treated as originating from the local network:
+If the ResponderIP is one of the following Cisco Umbrella/OpenDNS addresses and the initiator is public, the responder is treated as local:
 
 - `208.67.222.222`, `208.67.220.220`
 - `2620:119:35::35`, `2620:119:53::53`
 
-Private (RFC 1918) IPs are mapped to your configured home location. Internal-to-internal connections are ignored.
+For a private initiator, the initiator-to-responder direction is preserved. Private (RFC 1918) IPs are mapped to your configured home location. Internal-to-internal connections are ignored.
 
 ### Example Syslog File
 
-An example file is included at `examples/ftd-syslog-ips.json`. It contains a JSON array of raw syslog strings:
+The receiver accepts a JSON object per message, optionally preceded by a syslog header. File replay also accepts newline-delimited objects and arrays of legacy syslog strings:
 
 ```json
 [
@@ -254,5 +255,5 @@ See [the Palo Alto CSV field mapping](docs/palo-alto-ngfw.md) for the precise no
 - **WebSocket connection fails behind Nginx** — Confirm the `Upgrade` and `Connection` proxy headers are set in the Nginx config.
 - **Syslog events not appearing** — Verify the FTD is sending to the correct IP/port. Test with `sudo tcpdump -i any port 514 -A` to confirm traffic is arriving.
 - **`EACCES` error on port 514** — Ports below 1024 require root. Either run with `sudo npm start` or use a port above 1024 (e.g. 5514) and update the FTD config to match.
-- **Only seeing some syslog events** — pew-map only processes 430001 (IPS) and 430002 (SI) events. Connection events (430003) and other types are intentionally filtered out.
+- **Only seeing some syslog events** — pew-map only processes 430001 (intrusion) and 430002 (connection/SI) events. Connection events (430003) and other types are intentionally filtered out.
 - **Palo Alto rows are not appearing** — Select the Palo Alto CSV source, not an FTD syslog source, and confirm the export contains `Source Address`, `Destination Address`, and `Severity`. Rows with two private addresses are intentionally skipped.

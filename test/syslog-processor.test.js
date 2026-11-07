@@ -50,3 +50,30 @@ test('maps threat colors and severity levels from reputation categories and prio
     { color: '#FF5500', level: 'high' }
   );
 });
+
+test('parses JSON connection events by message_id without matching unrelated fields', () => {
+  const processor = new SyslogProcessor({ country: 'AU', city: 'Melbourne', coordinates: [145, -38] });
+  const event = { rec_type: 'FTD', message_id: '430002', InitiatorIP: '10.1.2.3', ResponderIP: '8.8.8.8', Protocol: 'udp', EventPriority: 'Low', AC_RuleAction: 'Block' };
+  assert.deepEqual(processor.parseSyslogEntry(JSON.stringify(event)), event);
+  assert.equal(processor.parseSyslogEntry(JSON.stringify({ ...event, message_id: '106023', ConnectionID: 430002 })), null);
+});
+
+test('normalizes a live JSON connection event and keeps private-to-OpenDNS direction', () => {
+  const processor = new SyslogProcessor({ country: 'AU', city: 'Melbourne', coordinates: [145, -38] });
+  processor.geoLookup = ip => ip === '208.67.222.222' ? { country: 'US', city: 'San Francisco', ll: [37, -122] } : null;
+  const event = { message_id: '430002', InitiatorIP: '10.1.2.3', ResponderIP: '208.67.222.222', Protocol: 'udp', EventPriority: 'Low', AC_RuleAction: 'Allow' };
+  let connection;
+  processor.handleRawSyslog(JSON.stringify(event), result => { connection = result; });
+  assert.equal(connection.source.ip, '10.1.2.3');
+  assert.equal(connection.destination.ip, '208.67.222.222');
+  assert.equal(connection.protocol, 17);
+  assert.equal(connection.ruleAction, 'Allow');
+  assert.equal(connection.threatLevel, 'low');
+});
+
+test('ignores unrelated non-JSON syslog messages without logging parse errors', t => {
+  const processor = new SyslogProcessor({ country: 'AU', city: 'Melbourne', coordinates: [145, -38] });
+  const error = t.mock.method(console, 'error', () => {});
+  assert.equal(processor.parseSyslogEntry('%FTD-6-106023: denied {source=example} {destination=example}'), null);
+  assert.equal(error.mock.callCount(), 0);
+});
