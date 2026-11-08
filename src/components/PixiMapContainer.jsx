@@ -1,5 +1,6 @@
 import React, { useEffect, useRef } from 'react';
 import * as PIXI from 'pixi.js';
+import { extendRoute, routeOpacity } from '../route-opacity.mjs';
 
 // --- Pure utility functions hoisted outside component to avoid re-creation per render ---
 
@@ -162,14 +163,12 @@ export default function PixiMapContainer({
   isRunning,
   animationDuration: animationDurationProp,
   onActiveConnectionsChange,
-  onCountriesCountChange,
-  onConnectionRateChange 
+  onCountriesCountChange
 }) {
   const containerRef = useRef(null);
   const appRef = useRef(null);
   const activeConnections = useRef(0);
   const countriesSet = useRef(new Set());
-  const lastSecondCount = useRef(0);
   const animationDurationRef = useRef(animationDurationProp || 2000);
   const maxConcurrentConnections = 100;
   const connectionsLayer = useRef(null);
@@ -237,12 +236,6 @@ export default function PixiMapContainer({
     // Register single shared ticker for all projectile animations
     app.ticker.add(tickerCallback);
 
-    // Rate counter
-    const rateInterval = setInterval(() => {
-      onConnectionRateChange(lastSecondCount.current);
-      lastSecondCount.current = 0;
-    }, 1000);
-
     // Resize PixiJS canvas and scale content when container size changes
     const resizeObserver = new ResizeObserver((entries) => {
       for (const entry of entries) {
@@ -266,8 +259,9 @@ export default function PixiMapContainer({
 
     return () => {
       resizeObserver.disconnect();
-      clearInterval(rateInterval);
       activeProjectiles.current.length = 0;
+      activeRoutes.current.clear();
+      activeConnections.current = 0;
       if (appRef.current) {
         appRef.current.ticker.remove(tickerCallback);
         appRef.current.destroy(true, { children: true, texture: true });
@@ -364,6 +358,16 @@ export default function PixiMapContainer({
   // Single Pixi ticker callback that updates all active projectiles each frame
   const tickerCallback = () => {
     const now = Date.now();
+    for (const [key, route] of activeRoutes.current) {
+      if (now >= route.expiresAt) {
+        route.container.destroy({ children: true });
+        activeRoutes.current.delete(key);
+        activeConnections.current--;
+        onActiveConnectionsChange(activeConnections.current);
+      } else {
+        route.container.alpha = routeOpacity(now, route.createdAt, route.expiresAt, 180, 320, route.startOpacity);
+      }
+    }
     const projs = activeProjectiles.current;
     let writeIdx = 0;
 
@@ -399,8 +403,6 @@ export default function PixiMapContainer({
   useEffect(() => {
     if (!connectionBatch || connectionBatch.length === 0 || !appRef.current) return;
 
-    lastSecondCount.current += connectionBatch.length;
-
     for (const connection of connectionBatch) {
       countriesSet.current.add(connection.source?.country);
       countriesSet.current.add(connection.destination?.country);
@@ -432,6 +434,9 @@ export default function PixiMapContainer({
     const colorHex = parseInt(color.replace('#', ''), 16);
     const { src, dst, midX, controlY, container, dstMarker } = routeData;
 
+    // Keep a busy route visible even when its projectile limit is reached.
+    extendRoute(routeData, Date.now(), animationDurationRef.current);
+
     // Cap projectiles per route to prevent memory buildup
     if (!routeData.projectileCount) routeData.projectileCount = 0;
     if (routeData.projectileCount >= MAX_PROJECTILES_PER_ROUTE) return;
@@ -441,19 +446,8 @@ export default function PixiMapContainer({
     projectile.anchor.set(0.5);
     projectile.scale.set(0.8);
     projectile.tint = colorHex;
+    projectile.position.set(src.x, src.y);
     container.addChild(projectile);
-
-    // Reset the route timeout (keep the line alive longer)
-    if (routeData.timeout) clearTimeout(routeData.timeout);
-    routeData.timeout = setTimeout(() => {
-      if (container.parent) {
-        connectionsLayer.current.removeChild(container);
-        container.destroy({ children: true });
-      }
-      activeRoutes.current.delete(routeData.routeKey);
-      activeConnections.current--;
-      onActiveConnectionsChange(activeConnections.current);
-    }, animationDurationRef.current);
 
     // Register projectile with the shared ticker loop
     activeProjectiles.current.push({
@@ -527,14 +521,18 @@ export default function PixiMapContainer({
       routeKey,
       container: connectionContainer,
       src, dst, midX, controlY, dstMarker,
-      timeout: null
+      createdAt: Date.now(),
+      startOpacity: 0,
+      expiresAt: Date.now() + animationDurationRef.current
     };
+    connectionContainer.alpha = 0;
     activeRoutes.current.set(routeKey, routeData);
 
     // Create animated projectile using shared texture
     const projectile = new PIXI.Sprite(projectileTextureRef.current);
     projectile.anchor.set(0.5);
     projectile.tint = colorHex;
+    projectile.position.set(src.x, src.y);
     connectionContainer.addChild(projectile);
 
     // Register projectile with the shared ticker loop
@@ -546,17 +544,6 @@ export default function PixiMapContainer({
       pulseAmount: 0.2,
       routeData: null
     });
-
-    // Set timeout to remove the whole line after animation
-    routeData.timeout = setTimeout(() => {
-      if (connectionContainer.parent) {
-        connectionsLayer.current.removeChild(connectionContainer);
-        connectionContainer.destroy({ children: true });
-      }
-      activeRoutes.current.delete(routeKey);
-      activeConnections.current--;
-      onActiveConnectionsChange(activeConnections.current);
-    }, animationDurationRef.current);
   };
 
   return (

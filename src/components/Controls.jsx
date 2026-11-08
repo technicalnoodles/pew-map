@@ -21,7 +21,7 @@ export default function Controls({ interfaces, isRunning, onStart, onStop, anima
       config.pcapFile = pcapFile;
     } else if (sourceType === 'syslog') {
       if (!syslogFile) {
-        alert('Please enter a syslog JSON file path');
+        alert('Please enter a syslog file path');
         return;
       }
       config.syslogFile = syslogFile;
@@ -92,13 +92,13 @@ export default function Controls({ interfaces, isRunning, onStart, onStop, anima
 
       {sourceType === 'syslog' && (
         <div className="control-group" id="syslog-group">
-          <label htmlFor="syslog-file">Syslog JSON File Path:</label>
+          <label htmlFor="syslog-file">Syslog File Path (.txt or .json):</label>
           <input
             type="text"
             id="syslog-file"
             value={syslogFile}
             onChange={(e) => setSyslogFile(e.target.value)}
-            placeholder="/path/to/syslogs.json"
+            placeholder="/path/to/syslogs.txt"
           />
         </div>
       )}

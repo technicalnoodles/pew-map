@@ -5,3 +5,5 @@ The live UDP and newline-delimited TCP receivers and file replay use the same FT
 Connection events can contain `InitiatorIP`, `ResponderIP`, `Protocol`, `AC_RuleAction`, and `EventPriority`. Intrusion events can contain `PriorityID`, `IntrusionRuleMessage`, and `InlineResult`; reputation events can contain `IP_ReputationSI_Category`. Reputation takes precedence over numeric intrusion priority, which takes precedence over `EventPriority` for coloring. Priority is a device-reported property, not proof that the connection is malicious.
 
 Private-to-private traffic and configured ignored destinations are excluded. A private endpoint uses the configured home location when geolocation is unavailable, and both endpoints need coordinates to appear on the map. Private initiators retain their original direction when connecting to an OpenDNS responder. See the README for setup and the legacy public-initiator OpenDNS behavior.
+
+File replay reads content regardless of extension, including `.txt`, `.json`, and `.ndjson`. Each line must contain a supported JSON event (optionally with a syslog prefix), or the file may contain a JSON array of legacy syslog strings.

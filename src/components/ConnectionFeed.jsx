@@ -1,4 +1,4 @@
-import React, { useRef, useEffect } from 'react';
+import React, { useRef, useLayoutEffect } from 'react';
 
 const THREAT_BADGE_MAP = {
   critical: 'threat-critical',
@@ -52,6 +52,7 @@ const FeedItem = React.memo(function FeedItem({ connection }) {
 
   return (
     <div
+      data-feed-id={connection._feedId}
       className={`feed-item ${isThreatLog ? 'feed-item-syslog' : ''}`}
       style={threatStyle}
     >
@@ -96,23 +97,51 @@ const FeedItem = React.memo(function FeedItem({ connection }) {
 
 export default function ConnectionFeed({ connections }) {
   const feedRef = useRef(null);
-  const prevFirstTimestamp = useRef(null);
+  const previousPositions = useRef(new Map());
+  const wasReading = useRef(false);
 
-  useEffect(() => {
-    const el = feedRef.current;
-    if (!el || connections.length === 0) return;
-
-    const currentFirst = connections[0]?.timestamp;
-    const hasNewData = currentFirst !== prevFirstTimestamp.current;
-    prevFirstTimestamp.current = currentFirst;
-
-    // If user has scrolled away from the top, preserve their position
-    if (hasNewData && el.scrollTop > 0) {
-      const prevScrollHeight = el.scrollHeight;
-      requestAnimationFrame(() => {
-        el.scrollTop += el.scrollHeight - prevScrollHeight;
-      });
+  useLayoutEffect(() => {
+    const list = feedRef.current;
+    if (!list) return;
+    const positions = previousPositions.current;
+    const items = Array.from(list.children);
+    const listRect = list.getBoundingClientRect();
+    const anchor = wasReading.current && items.find(item => positions.has(item.dataset.feedId));
+    if (anchor) {
+      list.scrollTop += anchor.getBoundingClientRect().top - positions.get(anchor.dataset.feedId);
     }
+
+    const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    if (!wasReading.current && !reducedMotion && positions.size) {
+      for (const item of items) {
+        const rect = item.getBoundingClientRect();
+        if (rect.top > listRect.bottom || rect.bottom < listRect.top) continue;
+        const previousTop = positions.get(item.dataset.feedId);
+        if (previousTop != null) {
+          const delta = previousTop - rect.top;
+          if (Math.abs(delta) > 0.5) {
+            item.animate([{ transform: `translateY(${delta}px)` }, { transform: 'translateY(0)' }],
+              { duration: 250, easing: 'cubic-bezier(0.16, 1, 0.3, 1)' });
+          }
+        } else {
+          item.animate([{ opacity: 0 }, { opacity: 1 }], { duration: 180, easing: 'ease-out' });
+        }
+      }
+    }
+
+    return () => {
+      wasReading.current = list.scrollTop > 1;
+      const bounds = list.getBoundingClientRect();
+      const nextPositions = new Map();
+      for (const item of list.children) {
+        const rect = item.getBoundingClientRect();
+        if (rect.bottom >= bounds.top && rect.top <= bounds.bottom) {
+          nextPositions.set(item.dataset.feedId, rect.top);
+        }
+        for (const animation of item.getAnimations()) animation.cancel();
+      }
+      previousPositions.current = nextPositions;
+    };
   }, [connections]);
 
   return (
@@ -121,9 +150,9 @@ export default function ConnectionFeed({ connections }) {
         <h3>Live Feed</h3>
       </div>
       <div id="feed-list" ref={feedRef} aria-live="polite" aria-relevant="additions">
-        {connections.map((connection, index) => (
+        {connections.map((connection) => (
           <FeedItem
-            key={connection.id || `${connection.timestamp}-${index}`}
+            key={connection._feedId}
             connection={connection}
           />
         ))}

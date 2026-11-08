@@ -257,3 +257,7 @@ See [the Palo Alto CSV field mapping](docs/palo-alto-ngfw.md) for the precise no
 - **`EACCES` error on port 514** — Ports below 1024 require root. Either run with `sudo npm start` or use a port above 1024 (e.g. 5514) and update the FTD config to match.
 - **Only seeing some syslog events** — pew-map only processes 430001 (intrusion) and 430002 (connection/SI) events. Connection events (430003) and other types are intentionally filtered out.
 - **Palo Alto rows are not appearing** — Select the Palo Alto CSV source, not an FTD syslog source, and confirm the export contains `Source Address`, `Destination Address`, and `Severity`. Rows with two private addresses are intentionally skipped.
+
+### Live visualization pacing
+
+Connections enter the map and feed individually in arrival order. During sustained bursts, the display retains up to 50 pending visual samples, dropping the oldest pending samples to stay near real time. Connection totals and rate still count all received events.

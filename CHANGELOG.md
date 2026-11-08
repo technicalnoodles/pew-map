@@ -9,6 +9,8 @@
 
 ### Changed
 
+- Pace sampled connections individually in arrival order and fade map routes for smoother live visualization. During sustained bursts, the visual queue retains the most recent 50 samples while the connection total and rate count all received events.
+
 - Cisco FTD syslog parsing recognizes JSON `message_id` and `EventPriority` fields in current connection events, while preserving legacy syslog headers and private-to-OpenDNS direction.
 
 - Informational Palo Alto Threat rows in the `info-leak` and `unknown` categories are excluded before map processing.

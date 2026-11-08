@@ -6,6 +6,10 @@ import PixiMapContainer from './components/PixiMapContainer';
 import ConnectionFeed from './components/ConnectionFeed';
 import Footer from './components/Footer';
 import useWebSocket from './hooks/useWebSocket';
+import { enqueueVisuals } from './visual-queue.mjs';
+
+const VISUAL_INTERVAL_MS = 100;
+const MAX_PENDING_VISUALS = 50;
 
 function App() {
   const [isRunning, setIsRunning] = useState(false);
@@ -17,6 +21,10 @@ function App() {
   const [interfaces, setInterfaces] = useState([]);
   const [connectionBatch, setConnectionBatch] = useState([]);
   const [animationDuration, setAnimationDuration] = useState(2000);
+  const nextFeedId = useRef(0);
+  const pendingVisuals = useRef([]);
+  const acceptingVisuals = useRef(true);
+  const receivedLastSecond = useRef(0);
 
   const wsUrl = `ws://${window.location.hostname}:${window.location.port || 3000}`;
   const { sendMessage, lastMessage, connectionStatus } = useWebSocket(wsUrl);
@@ -26,17 +34,29 @@ function App() {
     const count = message.totalCount || batch.length;
 
     setTotalConnections((prev) => prev + count);
-    setConnectionBatch(batch);
+    receivedLastSecond.current += count;
+    if (acceptingVisuals.current) {
+      pendingVisuals.current = enqueueVisuals(pendingVisuals.current, batch, MAX_PENDING_VISUALS);
+    }
+  }, []);
 
-    setRecentConnections((prev) => {
-      // Pre-format timestamps once so ConnectionFeed doesn't recreate Date objects per render
-      const withTime = batch.map(c => 
-        c._formattedTime ? c : { ...c, _formattedTime: new Date(c.timestamp).toLocaleTimeString() }
-      );
-      // Use spread to avoid mutating the original batch array
-      const updated = [...withTime].reverse().concat(prev);
-      return updated.length > 100 ? updated.slice(0, 100) : updated;
-    });
+  useEffect(() => {
+    const rateTimer = setInterval(() => {
+      setConnectionRate(receivedLastSecond.current);
+      receivedLastSecond.current = 0;
+    }, 1000);
+    const timer = setInterval(() => {
+      const connection = pendingVisuals.current.shift();
+      if (!connection) return;
+      setConnectionBatch([connection]);
+      const feedItem = {
+        ...connection,
+        _feedId: ++nextFeedId.current,
+        _formattedTime: connection._formattedTime || new Date(connection.timestamp).toLocaleTimeString()
+      };
+      setRecentConnections(prev => [feedItem, ...prev].slice(0, 100));
+    }, VISUAL_INTERVAL_MS);
+    return () => { clearInterval(timer); clearInterval(rateTimer); };
   }, []);
 
   useEffect(() => {
@@ -58,6 +78,9 @@ function App() {
   }, [lastMessage, handleBatch]);
 
   const handleStart = (config) => {
+    acceptingVisuals.current = true;
+    pendingVisuals.current = [];
+    receivedLastSecond.current = 0;
     sendMessage({
       action: 'start',
       ...config
@@ -71,6 +94,8 @@ function App() {
   };
 
   const handleStop = () => {
+    acceptingVisuals.current = false;
+    pendingVisuals.current = [];
     sendMessage({ action: 'stop' });
     setIsRunning(false);
   };
@@ -103,7 +128,6 @@ function App() {
           animationDuration={animationDuration}
           onActiveConnectionsChange={setActiveConnections}
           onCountriesCountChange={setCountriesCount}
-          onConnectionRateChange={setConnectionRate}
         />
         
         <ConnectionFeed connections={recentConnections} />
